@@ -31,4 +31,5 @@ To run this project, follow the below instructions:
 
 ## Features
 1.Certificates are generated and saved in both image(.png) and document(.pdf) formats.
+
 2.Generated pdf format certificates are sent to their respective emails.
