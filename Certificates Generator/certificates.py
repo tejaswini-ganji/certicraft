@@ -1,126 +1,148 @@
 import subprocess
-# The subprocess module present in Python is used to run new applications or programs through Python code by creating new processes.
 import sys
-# The sys module provides functions and variables used to manipulate different parts of the Python runtime environment. 
 import os
-# The OS module in Python provides functions for interacting with the operating system. 
+import smtplib
+import ssl
 
+import re  # For email validation
+from email.message import EmailMessage
+from datetime import datetime
+import random
+import json
+import time
+
+# Function to install packages
 def install(package):
     subprocess.check_call([sys.executable, "-m", "pip", "install", package])
-# The officially recommended way to install packages from a script is by calling pip's command-line interface via a subprocess.
 
 install('img2pdf')
-# install img2pdf python package for Lossless conversion of raster images to PDF
 install('openpyxl')
-# install openpyxl pyhton library to read/write Excel 2010 xlsx/xlsm/xltx/xltm files
 install('Pillow')
-# install pillow that is a fork of Python Imaging Library (PIL), which adds support for opening, manipulating, and saving images.
+install('python-dotenv')
 
-from img2pdf import convert, AlphaChannelError
-# Image can be converted into pdf bytes using img2pdf.convert() function 
-# An alpha channel is to process overlaying a foreground image with transparency over a background image.
+from img2pdf import convert
 from PIL import Image, ImageDraw, ImageFont
-#PIL is the Python Imaging Library which provides the python interpreter with image editing capabilities.
-# The module also provides a number of factory functions, including functions to load images from files, and to create new images.
-# The ImageDraw module provide simple 2D graphics for Image objects.        
-# The ImageFont module defines a class that store bitmap fonts, and are used with the PIL. 
 from tkinter.filedialog import askopenfile
-# The tkinter.filedialog module provides classes and factory functions for creating file/directory selection windows.
-# askopenfile is a file opener function to open and read any text based files ike .txt or .csv files.
 from openpyxl import load_workbook
-# openpyxl is a Python library to read/write Excel (with extension xlsx/xlsm/xltx/xltm) files.
-# load workbook function to open already created workbook or file on your disk for some operation.
+from dotenv import load_dotenv
 
-file = askopenfile(title='Select the Workbook', mode='r', filetypes=[
-                   ('Microsoft Excel', '.xlsx .xlsx .xlsm .xltx .xltm')])
-# This function will be used to open file in read mode and only Excel files will be opened
+load_dotenv()
+
+# Email sender credentials
+with open("config.json", "r") as file:
+    config = json.load(file)
+
+SENDER_EMAIL = config["SENDER_EMAIL"]
+SENDER_PASSWORD = config["SENDER_PASSWORD"]
+
+# Check if they are loaded correctly
+if not SENDER_EMAIL or not SENDER_PASSWORD:
+    raise ValueError("Email or password not found in .env file. Make sure the .env file exists and is properly formatted.")
+
+# Function to validate email
+def is_valid_email(email):
+    pattern = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'
+    return bool(re.match(pattern, email))
+
+
+# Open Excel file
+file = askopenfile(title='Select the Workbook',mode='r',filetypes=[('Microsoft Excel', '.xlsx .xlsm .xltx .xltm')])
 if file is not None:
     dirpath = os.path.dirname(file.name)
 else:
     sys.exit()
-# os.path.dirname() method is used to get the directory name from the specified path.
-# sys.exit() to exit from python 
+
 filepath = file.name
 
-allCertPath = dirpath+"/All_Certificates"
-# allCerpath holds the path of All_Certificates folder to be created
-allCertImgPath = allCertPath+"/Images"
-# allCertImgPath holds the path of Images subfolder to be created
-allCertPdfPath = allCertPath+"/PDFs"
-# allCertImgPath holds the path of PDFs subfolder to be created
+# Create necessary directories
+allCertPath = os.path.join(dirpath, "All_Certificates")
+allCertImgPath = os.path.join(allCertPath, "Images")
+allCertPdfPath = os.path.join(allCertPath, "PDFs")
 
+os.makedirs(allCertImgPath, exist_ok=True)
+os.makedirs(allCertPdfPath, exist_ok=True)
 
-try:
-    os.mkdir(allCertPath)
-    os.mkdir(allCertImgPath)
-    os.mkdir(allCertPdfPath)
-# os.mkdir() method is used to create a directory named with the specified path.This method raise FileExistsError if the directory to be created already exists.
-# All_Certificates folder and Images and PDFs subfolders are created in the specified path 
-except:
-    {}
+wb = load_workbook(filepath, data_only=True)
 
-wb = load_workbook(filepath,data_only=True)
-# The workbook is opened and accessed via wb object
 for ws in wb:
-# ws object can access all worksheets of the workbook
-# for each worksheet in the workbook
-    for r in range(3, 7):
-    # r object can access all rows mentioned in the range from the worksheet 
-    # for all rows numbered from 3 to 200
-        cell = ws.cell(row=r, column=1)
-    # Cell objects also have a row, column,and coordinate attributes that provide location information for the cell.
-    # for every row cell object stores data of specified by respective row and column number 1
-        if cell.value is None:
-            break
+    for r in range(3, 7):  # Start from row 3, assuming row 1 & 2 are headers
+        cell = ws.cell(row=r, column=1)  # Read ID column
 
-        name = str(ws.cell(row=r, column=2).value).strip().title()
-        # name object stores the name of the member
-        acm_id = str(ws.cell(row=r, column=1).value).strip().upper()
-        # acm_id object stores the id(the unique number) of the member
-        # strip() is an inbuilt function that returns a copy of the string with both leading and trailing characters removed.
-        # The title() function is used to convert the first charalcter in each word to Uppercase and remaining characters to Lowercase in the string.
-        # The upper() methods converts all lowercase characters of the string to uppercase.
-        eachmemberIMGpath = allCertImgPath+'/'+acm_id+'.png'
-        # eachmemberIMG object holds the path for acm_id.png file
-        eachmemberPDFpath = allCertPdfPath+'/'+acm_id+'.pdf'
-        # eachmemberPDF object holds the path for acm_id.pdf file
-        certificate = Image.open('certificates.png')
-        # certificate objects holds the sample template certificates.png
-        # image is opened in certificate object
+        if cell.value is None:  
+            break  # Stop if no more data
+
+        name = str(ws.cell(row=r, column=2).value).strip().title()  # Get Name
+        acm_id = str(ws.cell(row=r, column=1).value).strip().upper()  # Get ID
+        email_data = str(ws.cell(row=r, column=5).value).strip().lower()  # Get Emails (comma-separated)
+
+        # Generate a unique certificate ID
+        cert_id = f"CERT-{datetime.now().strftime('%Y%m%d%H%M%S')}-{random.randint(1000, 9999)}"
+
+        # Extract all valid emails
+        email_list = [email.strip() for email in email_data.split(',') if is_valid_email(email.strip())]
+
+        if not email_list:
+            print(f"Invalid or missing emails for {name} (Row {r}). Skipping email sending.")
+            continue  # Skip email sending if no valid email found
+
+        eachmemberIMGpath = os.path.join(allCertImgPath, f"{acm_id}.png")
+        eachmemberPDFpath = os.path.join(allCertPdfPath, f"{acm_id}.pdf")
+
+        # Load certificate template
+        certificate = Image.open('certificate_template.png')
         draw = ImageDraw.Draw(certificate)
-        # draw object holds the image context that need to be modified
         name_font = ImageFont.truetype('Lora-Bold.ttf', 75)
-        # ImageFont.truetype() loads a font object from the given file, and creates a font object for a font of the given size.
-        # name_font object holds specified font style and size
+        cert_id_font = ImageFont.truetype('Lora-Bold.ttf', 40)  # Smaller font for cert ID
+
+        # Center-align name
         bbox = draw.textbbox((0, 0), name, font=name_font)
-        w = bbox[2] - bbox[0]  # Width of the text
-        h = bbox[3] - bbox[1]  # Height of the text
+        w = bbox[2] - bbox[0]  
+        h = bbox[3] - bbox[1]  
         left = (certificate.width - w) / 2
-        top = 550
-        # left and top objects specify the left and top coordinates of the sample template where the name of the member is to be printed
+        top = 525  
+
+        # Add name to certificate
         draw.text((left, top), name, fill=(75, 75, 75, 255), font=name_font)
-        # data specified in name object is written on the image at specified coordinates
+
+        # **Highlighting the part where Certificate ID is added**
+        cert_id_bbox = draw.textbbox((0, 0), f"Certificate ID: {cert_id}", font=cert_id_font)
+        cert_id_width = cert_id_bbox[2] - cert_id_bbox[0]
+        cert_id_x = (certificate.width - cert_id_width) / 2 
+        cert_id_y = top + 275
+        draw.text((cert_id_x, cert_id_y), f"Certificate ID: {cert_id}", fill=(75, 75, 75, 255), font=cert_id_font)
+
+        # Save certificate image
         certificate = certificate.convert('RGB')
-        # Image.convert('RGB') just converts each pixel to the triple 8-bit value,it basically changes the mode of how image is represented and stored.
         certificate.save(eachmemberIMGpath)
-        # The changes done to the sample template are saved and the respective image is stored in path specified by eachmemberIMGpath object
-        certificate = Image.open(eachmemberIMGpath)
-        # image in eachmemberIMGpath is opened in certificate object
-        pdf_bytes = convert(certificate.filename)
-        # convert the image file into cunks using covert method
-        f = open(eachmemberPDFpath, "wb")
-        # open the pdf file
-        f.write(pdf_bytes)
-        # write the pdf file with chunks
-        certificate.close()
-        # close the image file
-        f.close()
-        # The respective image file is converted to pdf file and stored in eachmemberPDFpath
-        print(r, name)
-        # row number and name of the member are printed on successful generation of certificate in .png and .pdf formats
-        # it continues with the next row
-    # it continues with the next sheet in wb
+
+        # Convert to PDF
+        pdf_bytes = convert(eachmemberIMGpath)
+        with open(eachmemberPDFpath, "wb") as f:
+            f.write(pdf_bytes)
+
+        print(f"Generated certificate for {name}. Sending to {', '.join(email_list)}...")
+
+        # Send email to each valid recipient
+        msg = EmailMessage()
+        msg["From"] = SENDER_EMAIL
+        msg["Subject"] = "Your Certificate"
+        msg["Reply-To"] = SENDER_EMAIL
+        msg.set_content(f"Dear {name},\n\nPlease find attached your certificate.\nCertificate ID: {cert_id}\n\nBest Regards,\nYour Team")
+
+        # Attach PDF file
+        with open(eachmemberPDFpath, "rb") as attachment:
+            msg.add_attachment(attachment.read(), maintype="application", subtype="pdf", filename=f"{name}_certificate.pdf")
+
+        # Secure connection with SSL and send emails
+        context = ssl.create_default_context()
+        with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            server.starttls(context=context)  # Upgrade to secure TLS connection
+            server.login(SENDER_EMAIL, SENDER_PASSWORD)
+            for email in email_list:
+                msg["To"] = email
+                server.send_message(msg)
+                print(f"Email sent successfully to {email}")
+                time.sleep(10)  # Pause for 10 seconds before sending the next email
+
 wb.save(file.name)
-# The workbook is saved and closed
-print("Done.")
-# After the successful execution of the program a Done. statement is printed in the logs...!!!
+print("Process Completed.")
