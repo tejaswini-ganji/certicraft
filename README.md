@@ -5,6 +5,7 @@ This program automatically generates the certificates of the members by giving t
 It saves a lot of time by generating certificates of multiple people at the same time within a few seconds, which otherwise takes a lot of time if to be done manually.
 Certificates Generator is the python project to generate certificates. It also serves as GUI based application.
 
+![certificate image](Certificates%20Generator/All_Certificates/Images/22BD1A1220.png)
 
 ## Project is created with:
 •	Python programming language
